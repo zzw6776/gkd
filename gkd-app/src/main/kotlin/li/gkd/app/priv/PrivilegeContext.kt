@@ -8,6 +8,7 @@ import android.app.AppOpsManagerHidden
 import android.content.Intent
 import android.content.pm.PackageInfo
 import android.graphics.Bitmap
+import android.os.Environment
 import android.os.IBinder
 import android.os.Process
 import com.hjq.permissions.permission.dangerous.GetInstalledAppsPermission
@@ -19,6 +20,7 @@ import li.gkd.app.util.AndroidTarget
 import priv.kit.core.Privilege
 import priv.kit.core.PrivilegeServerInfo
 import priv.kit.core.PrivilegeUserServiceConnection
+import java.io.File
 
 class PrivilegeContext private constructor(
     val serverInfo: PrivilegeServerInfo,
@@ -43,9 +45,13 @@ class PrivilegeContext private constructor(
 
     suspend fun destroy() {
         try {
-            if (taskStackListenerRegistered && Privilege.pingServer()) {
-                activityManager.value.unregisterTaskStackListener(CompatTaskStackListener)
-                taskStackListenerRegistered = false
+            if (Privilege.pingServer()) {
+                clearScreenshotFileListener()
+                clearSnapshotKeyListener()
+                if (taskStackListenerRegistered) {
+                    activityManager.value.unregisterTaskStackListener(CompatTaskStackListener)
+                    taskStackListenerRegistered = false
+                }
             }
         } finally {
             userServiceConnection.unbind()
@@ -136,6 +142,28 @@ class PrivilegeContext private constructor(
     fun screenshot(): Bitmap? {
         return CompatScreenshot.capture(app, wmManager.value, userService)
     }
+
+    fun setScreenshotFileListener(
+        listener: IScreenshotListener,
+    ): Boolean {
+        val screenshotDirectory = File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
+            "Screenshots",
+        )
+        return userService.setScreenshotFileListener(
+            screenshotDirectory.absolutePath,
+            listener,
+        )
+    }
+
+    fun clearScreenshotFileListener() {
+        userService.clearScreenshotFileListener()
+    }
+
+    fun setSnapshotKeyListener(listener: IScreenshotListener): Boolean =
+        userService.setSnapshotKeyListener(listener)
+
+    fun clearSnapshotKeyListener() = userService.clearSnapshotKeyListener()
 
     private fun setAllowSelfMode(code: Int) {
         val mode = appOpsService.value.checkOperation(code, Process.myUid(), META.appId)

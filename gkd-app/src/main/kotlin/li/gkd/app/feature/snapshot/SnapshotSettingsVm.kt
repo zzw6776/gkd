@@ -4,6 +4,7 @@ import li.gkd.app.store.AppStore.storeFlow
 import li.gkd.app.store.AppStore
 import li.gkd.app.ui.share.BaseViewModel
 import li.gkd.app.data.appinfo.AppInfoRepository
+import li.gkd.app.priv.privilegeContextFlow
 import li.gkd.app.util.ToastUtils.toast
 import li.gkd.selector.Selector
 import li.gkd.selector.SelectorCompileResult
@@ -45,17 +46,40 @@ class SnapshotSettingsVm : BaseViewModel() {
         AppStore.updateSettings { it.copy(captureVolumeChange = enabled) }
     }
 
+    fun setCapturePowerVolumeUp(enabled: Boolean) {
+        if (enabled && privilegeContextFlow.value?.serverInfo?.uid != 0) {
+            toast("请先连接 Root 特权服务")
+            return
+        }
+        AppStore.updateSettings {
+            if (enabled) it.copy(
+                capturePowerVolumeUp = true,
+                captureVolumeChange = false,
+                captureScreenshot = false,
+            ) else it.copy(capturePowerVolumeUp = false)
+        }
+    }
+
     fun setCaptureScreenshot(enabled: Boolean) {
         val store = storeFlow.value
         AppStore.updateSettings { it.copy(captureScreenshot = enabled) }
         if (
-            enabled && (
+            enabled &&
+            (!store.captureScreenshotByPrivilege || privilegeContextFlow.value?.serverInfo?.uid != 0) && (
                 store.screenshotTargetAppId.isEmpty() ||
                     store.screenshotEventSelector.isEmpty()
             )
         ) {
             toast("请配置目标应用和特征事件选择器")
         }
+    }
+
+    fun setCaptureScreenshotByPrivilege(enabled: Boolean) {
+        if (enabled && privilegeContextFlow.value?.serverInfo?.uid != 0) {
+            toast("请先连接 Root 特权服务")
+            return
+        }
+        AppStore.updateSettings { it.copy(captureScreenshotByPrivilege = enabled) }
     }
 
     fun setHideSnapshotStatusBar(enabled: Boolean) {

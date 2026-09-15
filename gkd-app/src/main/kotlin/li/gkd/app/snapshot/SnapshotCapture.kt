@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.view.accessibility.AccessibilityNodeInfo
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.createBitmap
 import androidx.core.graphics.scale
@@ -15,8 +16,11 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import li.gkd.app.a11y.A11yCommonImpl
 import li.gkd.app.a11y.A11yRuntime
 import li.gkd.app.a11y.currentTopActivity
+import li.gkd.app.a11y.setGeneratedTime
 import li.gkd.app.data.ComplexSnapshot
 import li.gkd.app.data.RpcError
 import li.gkd.app.data.info2nodeList
@@ -36,6 +40,7 @@ import li.gkd.app.util.px
 import li.gkd.app.util.ToastUtils.toast
 import kotlin.math.min
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 object SnapshotCapture {
     private val captureMutex = Mutex()
@@ -148,6 +153,67 @@ object SnapshotCapture {
         return topActivity.activityId.takeIf { topActivity.appId == appId }
     }
 
+    private suspend fun awaitSnapshotRoot(
+        service: A11yCommonImpl,
+        appId: String,
+    ): AccessibilityNodeInfo? {
+        var expectedRoot: AccessibilityNodeInfo? = null
+        withTimeoutOrNull(10.seconds) {
+            while (expectedRoot == null) {
+                val root = withContext(Dispatchers.IO) {
+                    A11yRuntime.getRoot(service)
+                }
+                if (root?.packageName?.toString() == appId) {
+                    expectedRoot = root.setGeneratedTime()
+                } else {
+                    delay(100.milliseconds)
+                }
+            }
+        }
+        return expectedRoot
+    }
+
+    private suspend fun resolveSnapshotRoot(
+        service: A11yCommonImpl,
+        expectedAppId: String? = null,
+    ): AccessibilityNodeInfo? {
+        if (!expectedAppId.isNullOrEmpty()) {
+            return awaitSnapshotRoot(service, expectedAppId)?.also {
+                LogUtils.d("已获取目标应用快照节点: $expectedAppId")
+            } ?: throw RpcError("等待截图目标应用超时，未保存快照")
+        }
+        val activeRoot = A11yRuntime.getRoot(service) ?: return null
+        val store = storeFlow.value
+        val screenshotAppId = store.screenshotTargetAppId
+        if (
+            !store.captureScreenshot ||
+            screenshotAppId.isEmpty() ||
+            activeRoot.packageName?.toString() != screenshotAppId
+        ) {
+            return activeRoot
+        }
+        val foregroundAppId = withContext(Dispatchers.IO) {
+            try {
+                privilegeContextFlow.value?.topCpn()?.packageName
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                LogUtils.d("读取前台应用失败", e)
+                null
+            }
+        } ?: currentTopActivity.appId
+        if (foregroundAppId.isEmpty() || foregroundAppId == screenshotAppId) {
+            return activeRoot
+        }
+        // 部分 ColorOS 版本显示截屏浮层时会从无障碍窗口列表中移除原应用窗口，
+        // 此时只能等待浮层退出、原应用重新成为活动窗口。
+        val foregroundRoot = awaitSnapshotRoot(service, foregroundAppId)
+        if (foregroundRoot != null) {
+            LogUtils.d("快照已忽略截图浮层: $screenshotAppId -> $foregroundAppId")
+        }
+        return foregroundRoot ?: throw RpcError("等待截图浮层退出超时，未保存快照")
+    }
+
     private suspend fun isFocusedWindowSecure(appId: String): Boolean? =
         withContext(Dispatchers.IO) {
             try {
@@ -230,12 +296,28 @@ object SnapshotCapture {
     }
 
     suspend fun capture(forcedCropStatusBar: Boolean = false): ComplexSnapshot {
+        return captureInternal(forcedCropStatusBar)
+    }
+
+    suspend fun captureForApp(
+        expectedAppId: String,
+    ): ComplexSnapshot {
+        return captureInternal(
+            forcedCropStatusBar = false,
+            expectedAppId = expectedAppId,
+        )
+    }
+
+    private suspend fun captureInternal(
+        forcedCropStatusBar: Boolean,
+        expectedAppId: String? = null,
+    ): ComplexSnapshot {
         val service = A11yRuntime.service ?: throw RpcError("服务不可用，请先授权")
         if (!captureMutex.tryLock()) {
             throw RpcError("正在保存快照，不可重复操作")
         }
         try {
-            val rootNode = A11yRuntime.getRoot(service)
+            val rootNode = resolveSnapshotRoot(service, expectedAppId)
                 ?: throw RpcError("当前应用没有无障碍信息，捕获失败")
             val snapshotId = System.currentTimeMillis()
             val appId = rootNode.packageName.toString()

@@ -6,12 +6,18 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.view.accessibility.AccessibilityEvent
 import androidx.core.content.ContextCompat
+import kotlinx.atomicfu.atomic
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import li.gkd.app.app
 import li.gkd.app.appScope
+import li.gkd.app.priv.IScreenshotListener
+import li.gkd.app.priv.PrivilegeContext
+import li.gkd.app.priv.privilegeContextFlow
 import li.gkd.app.store.AppStore.storeFlow
 import li.gkd.app.util.LogUtils
 import li.gkd.app.util.ScreenUtils
@@ -80,6 +86,7 @@ private val a11yEventAdapter = A11yEventNodeAdapter
 context(event: AccessibilityEvent)
 private fun watchCaptureScreenshot() {
     if (!storeFlow.value.captureScreenshot) return
+    if (privilegedScreenshotListenerActive.value) return
     if (SnapshotCapture.isCapturing) return
     if (event.packageName != storeFlow.value.screenshotTargetAppId) return
     if (tempEventSelector.first != storeFlow.value.screenshotEventSelector) {
@@ -93,6 +100,90 @@ private fun watchCaptureScreenshot() {
     }
     appScope.launchLogged {
         SnapshotCapture.capture()
+    }
+}
+
+private val privilegedScreenshotListenerActive = atomic(false)
+
+private val snapshotKeyListener = object : IScreenshotListener.Stub() {
+    override fun onScreenshot() {
+        appScope.launchLogged(Dispatchers.IO) {
+            if (!storeFlow.value.capturePowerVolumeUp || ScreenUtils.isScreenLock()) return@launchLogged
+            if (SnapshotCapture.isCapturing) return@launchLogged
+            val expectedAppId = privilegeContextFlow.value?.topCpn()?.packageName
+                ?: currentTopActivity.appId
+            if (expectedAppId.isEmpty()) return@launchLogged
+            LogUtils.d("组合键触发快照: $expectedAppId")
+            SnapshotCapture.captureForApp(expectedAppId)
+        }
+    }
+}
+
+private fun initSnapshotKeyMonitor() {
+    appScope.launchLogged(Dispatchers.IO) {
+        var registeredContext: PrivilegeContext? = null
+        combine(privilegeContextFlow, storeFlow) { context, store ->
+            context to (store.capturePowerVolumeUp && context?.serverInfo?.uid == 0)
+        }.distinctUntilChanged().collect { (context, enabled) ->
+            registeredContext?.let { runCatching { it.clearSnapshotKeyListener() } }
+            registeredContext = null
+            if (context != null && enabled) {
+                runCatching { check(context.setSnapshotKeyListener(snapshotKeyListener)) }
+                    .onSuccess {
+                        registeredContext = context
+                        LogUtils.d("Root 组合键监听已启动")
+                    }.onFailure {
+                        LogUtils.d("Root 组合键监听启动失败", it)
+                        li.gkd.app.util.ToastUtils.toast("组合键监听启动失败，请检查 Root 连接")
+                    }
+            }
+        }
+    }
+}
+
+private val screenshotListener = object : IScreenshotListener.Stub() {
+    override fun onScreenshot() {
+        appScope.launchLogged(Dispatchers.IO) {
+            val store = storeFlow.value
+            if (!store.captureScreenshot || !store.captureScreenshotByPrivilege) return@launchLogged
+            if (SnapshotCapture.isCapturing) return@launchLogged
+            val expectedAppId = privilegeContextFlow.value?.topCpn()?.packageName
+                ?: currentTopActivity.appId
+            if (expectedAppId.isEmpty()) return@launchLogged
+            LogUtils.d("检测到系统截图文件事件: $expectedAppId")
+            SnapshotCapture.captureForApp(expectedAppId)
+        }
+    }
+}
+
+private fun initCaptureScreenshotFileMonitor() {
+    appScope.launchLogged(Dispatchers.IO) {
+        var registeredContext: PrivilegeContext? = null
+        combine(privilegeContextFlow, storeFlow) { context, store ->
+            context to (
+                    store.captureScreenshot &&
+                            store.captureScreenshotByPrivilege &&
+                            context?.serverInfo?.uid == 0
+                    )
+        }.distinctUntilChanged().collect { (context, enabled) ->
+            registeredContext?.let { oldContext ->
+                runCatching { oldContext.clearScreenshotFileListener() }
+            }
+            registeredContext = null
+            privilegedScreenshotListenerActive.value = false
+            if (context == null || !enabled) return@collect
+            val result = runCatching {
+                check(context.setScreenshotFileListener(screenshotListener))
+            }
+            val active = result.isSuccess
+            privilegedScreenshotListenerActive.value = active
+            if (active) {
+                registeredContext = context
+                LogUtils.d("Root 截图文件监听已启动")
+            } else {
+                LogUtils.d("Root 截图文件监听启动失败", result.exceptionOrNull())
+            }
+        }
     }
 }
 
@@ -209,6 +300,8 @@ private fun initScreenStateReceiver() {
 
 fun initA11yFeat() {
     initRuleChangedLog()
+    initCaptureScreenshotFileMonitor()
+    initSnapshotKeyMonitor()
     initCaptureVolume()
     initScreenStateReceiver()
 }

@@ -1,51 +1,76 @@
-name: Build-Apk
+name: Android Release
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
-  push:
-    branches:
-      - '**'
-    paths-ignore:
-      - 'LICENSE'
-      - '*.md'
-      - '.github/**'
+permissions: {}
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
-    if: ${{ !startsWith(github.event.head_commit.message, 'chore:') && !startsWith(github.event.head_commit.message, 'chore(') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-java@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          distribution: 'temurin'
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
           java-version: '21'
 
-      - uses: gradle/actions/setup-gradle@v6
-        with:
-          cache-encryption-key: ${{ secrets.GRADLE_CACHE_ENCRYPTION_KEY }}
-
-      - name: write gkd keystore
-        run: echo ${{ secrets.GKD_STORE_FILE_BASE64 }} | base64 --decode > ${{ github.workspace }}/gkd.jks
-
-      - run: ./gradlew :gkd-app:assembleGkdRelease
+      - name: Restore encrypted signing bundle
         env:
-          GKD_GITHUB_COOKIE: ${{ secrets.GKD_GITHUB_COOKIE }}
-          GKD_API_AUTH_TOKEN: ${{ secrets.GKD_API_AUTH_TOKEN }}
-          GKD_STORE_FILE: ${{ github.workspace }}/gkd.jks
-          GKD_STORE_PASSWORD: ${{ secrets.GKD_STORE_PASSWORD }}
-          GKD_KEY_ALIAS: ${{ secrets.GKD_KEY_ALIAS }}
-          GKD_KEY_PASSWORD: ${{ secrets.GKD_KEY_PASSWORD }}
-          GKD_RENAME_APK_FLAG: "1"
+          SIGNING_PROPERTIES_ZIP_PASSWORD: ${{ secrets.SIGNING_PROPERTIES_ZIP_PASSWORD }}
+        run: |
+          python3 -m venv "$RUNNER_TEMP/signing-python"
+          "$RUNNER_TEMP/signing-python/bin/pip" install pyzipper==0.3.6 pycryptodomex==3.23.0
+          "$RUNNER_TEMP/signing-python/bin/python" .github/scripts/restore-signing.py \
+            .github/signing/release-signing.zip "$RUNNER_TEMP/gkd-signing"
 
-      - uses: actions/upload-artifact@v7
+      - name: Build signed GKD release
+        env:
+          GKD_SIGNING_PROPERTIES: ${{ runner.temp }}/gkd-signing/signing.properties
+          GKD_STORE_FILE: ${{ runner.temp }}/gkd-signing/release.keystore
+          GKD_RENAME_APK_FLAG: '1'
+        run: ./gradlew --no-daemon -Pkotlin.compiler.execution.strategy=in-process --no-configuration-cache :gkd-app:assembleGkdRelease
+
+      - name: Remove decrypted signing files
+        if: always()
+        run: |
+          rm -f -- "$RUNNER_TEMP/gkd-signing/signing.properties" "$RUNNER_TEMP/gkd-signing/release.keystore"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          archive: false
+          name: gkd-release-${{ github.sha }}
           path: gkd-app/build/outputs/apk/gkd/release/*.apk
+          if-no-files-found: error
+          retention-days: 7
 
-      - uses: actions/upload-artifact@v7
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: outputs
-          path: gkd-app/build/outputs
+          name: gkd-release-${{ github.sha }}
+          path: release
+      - name: Publish signed APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "local-build-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}" release/*.apk \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "GKD personal release #${GITHUB_RUN_NUMBER}" \
+            --notes "Personal signed build from ${GITHUB_SHA}; not an official GKD release." --latest

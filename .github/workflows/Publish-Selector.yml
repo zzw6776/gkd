@@ -15,6 +15,7 @@ permissions:
 
 jobs:
   publish:
+    if: github.repository == 'gkd-kit/gkd'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

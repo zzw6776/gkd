@@ -19,4 +19,7 @@ kotlin-js-store
 *.apk
 *.zip
 local.properties
+signing.properties
+.ci-signing/
+!/.github/signing/release-signing.zip
 libs.versions.updates.toml

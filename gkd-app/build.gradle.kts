@@ -10,6 +10,7 @@ import li.gkd.gradle.configureBuildAssets
 import li.gkd.gradle.gitInfo
 import li.gkd.gradle.readDebugSuffixResources
 import li.gkd.gradle.releaseBuildKey
+import java.util.Properties
 
 val gitInfo = project.gitInfo
 val debugSuffixResources = project.readDebugSuffixResources()
@@ -27,8 +28,8 @@ android {
     namespace = "li.gkd.app"
     defaultConfig {
         applicationId = "li.songe.gkd"
-        versionCode = 92
-        versionName = "1.12.1"
+        versionCode = 93
+        versionName = "1.12.1-local.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -55,13 +56,23 @@ android {
 
     sourceSets.getByName("androidTest").assets.srcDir(project(":gkd-db").file("schemas"))
 
+    val signingProperties = Properties().apply {
+        buildProperty("GKD_SIGNING_PROPERTIES").orNull?.let { path ->
+            file(path).inputStream().use { load(it) }
+        }
+    }
+    fun signingValue(environmentName: String, vararg propertyNames: String): String? =
+        buildProperty(environmentName).orNull ?: propertyNames.firstNotNullOfOrNull { name ->
+            signingProperties.getProperty(name)?.trim()?.takeIf { it.isNotEmpty() }
+        }
+
     val gkdStoreFile = buildProperty("GKD_STORE_FILE").orNull
     val gkdSigningConfig = if (gkdStoreFile != null) {
         signingConfigs.create("gkd") {
             storeFile = file(gkdStoreFile)
-            storePassword = buildProperty("GKD_STORE_PASSWORD").orNull
-            keyAlias = buildProperty("GKD_KEY_ALIAS").orNull
-            keyPassword = buildProperty("GKD_KEY_PASSWORD").orNull
+            storePassword = requireNotNull(signingValue("GKD_STORE_PASSWORD", "keystore.password", "storePassword", "store.password")) { "Missing GKD store password" }
+            keyAlias = requireNotNull(signingValue("GKD_KEY_ALIAS", "key.alias", "keyAlias")) { "Missing GKD key alias" }
+            keyPassword = requireNotNull(signingValue("GKD_KEY_PASSWORD", "key.password", "keyPassword")) { "Missing GKD key password" }
         }
     } else {
         signingConfigs.getByName("debug")

@@ -34,6 +34,7 @@ import kotlinx.serialization.Serializable
 import li.gkd.app.R
 import li.gkd.app.app
 import li.gkd.app.permission.PermissionStates
+import li.gkd.app.priv.privilegeContextFlow
 import li.gkd.app.service.ScreenshotService
 import li.gkd.app.store.AppStore.storeFlow
 import li.gkd.app.ui.component.AppAlertDialog
@@ -62,6 +63,7 @@ fun SnapshotSettingsPage() {
     val vm = viewModel<SnapshotSettingsVm>()
     val scope = vm.scope
     val store by storeFlow.collectAsStateWithLifecycle()
+    val privilegeContext by privilegeContextFlow.collectAsStateWithLifecycle()
     val screenshotServiceRunning by ScreenshotService.isRunning.collectAsStateWithLifecycle()
     var showCaptureScreenshotDialog by rememberSaveable { mutableStateOf(false) }
 
@@ -138,6 +140,12 @@ fun SnapshotSettingsPage() {
                 )
             }
             TextSwitch(
+                title = "音量上＋电源快照",
+                subtitle = "Root：同时短按保存快照；需保持常驻通知开启，系统音量面板可能出现",
+                checked = store.capturePowerVolumeUp,
+                onCheckedChange = vm::setCapturePowerVolumeUp,
+            )
+            TextSwitch(
                 title = "音量快照",
                 subtitle = "音量变化时保存快照",
                 checked = store.captureVolumeChange,
@@ -147,18 +155,32 @@ fun SnapshotSettingsPage() {
                 title = "截屏快照",
                 subtitle = "截屏时保存快照",
                 checked = store.captureScreenshot,
-                suffixIcon = {
-                    PerfCustomIconButton(
-                        size = 32.dp,
-                        iconSize = 20.dp,
-                        onClickLabel = "打开配置截屏快照弹窗",
-                        onClick = throttle { showCaptureScreenshotDialog = true },
-                        id = R.drawable.ic_page_info,
-                        contentDescription = "截屏快照设置",
-                    )
+                suffixIcon = if (
+                    store.captureScreenshotByPrivilege && privilegeContext?.serverInfo?.uid == 0
+                ) {
+                    null
+                } else {
+                    {
+                        PerfCustomIconButton(
+                            size = 32.dp,
+                            iconSize = 20.dp,
+                            onClickLabel = "打开配置截屏快照弹窗",
+                            onClick = throttle { showCaptureScreenshotDialog = true },
+                            id = R.drawable.ic_page_info,
+                            contentDescription = "截屏快照设置",
+                        )
+                    }
                 },
                 onCheckedChange = vm::setCaptureScreenshot,
             )
+            if (store.captureScreenshot && privilegeContext?.serverInfo?.uid == 0) {
+                TextSwitch(
+                    title = "Root 截屏监听",
+                    subtitle = "Root 监听系统截图文件事件，无需配置应用ID和事件规则",
+                    checked = store.captureScreenshotByPrivilege,
+                    onCheckedChange = vm::setCaptureScreenshotByPrivilege,
+                )
+            }
 
             Text(
                 text = "截图处理",
