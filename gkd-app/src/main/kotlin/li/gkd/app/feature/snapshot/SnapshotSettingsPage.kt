@@ -35,6 +35,7 @@ import li.gkd.app.R
 import li.gkd.app.app
 import li.gkd.app.permission.PermissionStates
 import li.gkd.app.priv.privilegeContextFlow
+import li.gkd.app.priv.ScreenshotMonitorState
 import li.gkd.app.service.ScreenshotService
 import li.gkd.app.store.AppStore.storeFlow
 import li.gkd.app.ui.component.AppAlertDialog
@@ -64,6 +65,7 @@ fun SnapshotSettingsPage() {
     val scope = vm.scope
     val store by storeFlow.collectAsStateWithLifecycle()
     val privilegeContext by privilegeContextFlow.collectAsStateWithLifecycle()
+    val screenshotMonitorMessage by ScreenshotMonitorState.message.collectAsStateWithLifecycle()
     val screenshotServiceRunning by ScreenshotService.isRunning.collectAsStateWithLifecycle()
     var showCaptureScreenshotDialog by rememberSaveable { mutableStateOf(false) }
 
@@ -176,7 +178,8 @@ fun SnapshotSettingsPage() {
             if (store.captureScreenshot && privilegeContext?.serverInfo?.uid == 0) {
                 TextSwitch(
                     title = "Root 截屏监听",
-                    subtitle = "Root 监听系统截图文件事件，无需配置应用ID和事件规则",
+                    subtitle = if (store.captureScreenshotByPrivilege) screenshotMonitorMessage
+                        else "监听系统截图文件事件，无需配置应用ID和事件规则",
                     checked = store.captureScreenshotByPrivilege,
                     onCheckedChange = vm::setCaptureScreenshotByPrivilege,
                 )

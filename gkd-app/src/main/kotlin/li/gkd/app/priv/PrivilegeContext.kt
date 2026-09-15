@@ -144,7 +144,7 @@ class PrivilegeContext private constructor(
     }
 
     fun setScreenshotFileListener(
-        listener: IScreenshotListener,
+        listener: IScreenshotFileListener,
     ): Boolean {
         val screenshotDirectory = File(
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),

@@ -16,7 +16,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.TimeoutCancellationException
 import li.gkd.app.a11y.A11yCommonImpl
 import li.gkd.app.a11y.A11yRuntime
 import li.gkd.app.a11y.currentTopActivity
@@ -44,6 +45,7 @@ import kotlin.time.Duration.Companion.seconds
 
 object SnapshotCapture {
     private val captureMutex = Mutex()
+    private val rootReader = SnapshotReadExecutor()
     val isCapturing: Boolean
         get() = captureMutex.isLocked
 
@@ -157,21 +159,22 @@ object SnapshotCapture {
         service: A11yCommonImpl,
         appId: String,
     ): AccessibilityNodeInfo? {
-        var expectedRoot: AccessibilityNodeInfo? = null
-        withTimeoutOrNull(10.seconds) {
-            while (expectedRoot == null) {
-                val root = withContext(Dispatchers.IO) {
-                    A11yRuntime.getRoot(service)
-                }
-                if (root?.packageName?.toString() == appId) {
-                    expectedRoot = root.setGeneratedTime()
-                } else {
-                    delay(100.milliseconds)
-                }
+        while (true) {
+            val root = readSnapshotRoot(service)
+            if (root?.packageName?.toString() == appId) {
+                return root
             }
+            delay(100.milliseconds)
         }
-        return expectedRoot
     }
+
+    private suspend fun readSnapshotRoot(service: A11yCommonImpl): AccessibilityNodeInfo? =
+        try {
+            // Do not update the rule engine's shared root cache from an expired capture.
+            rootReader.read { service.windowNodeInfo }?.setGeneratedTime()
+        } catch (e: SnapshotReadBusyException) {
+            throw RpcError(e.message.orEmpty())
+        }
 
     private suspend fun resolveSnapshotRoot(
         service: A11yCommonImpl,
@@ -182,7 +185,7 @@ object SnapshotCapture {
                 LogUtils.d("已获取目标应用快照节点: $expectedAppId")
             } ?: throw RpcError("等待截图目标应用超时，未保存快照")
         }
-        val activeRoot = A11yRuntime.getRoot(service) ?: return null
+        val activeRoot = readSnapshotRoot(service) ?: return null
         val store = storeFlow.value
         val screenshotAppId = store.screenshotTargetAppId
         if (
@@ -302,10 +305,15 @@ object SnapshotCapture {
     suspend fun captureForApp(
         expectedAppId: String,
     ): ComplexSnapshot {
-        return captureInternal(
-            forcedCropStatusBar = false,
-            expectedAppId = expectedAppId,
-        )
+        try {
+            return captureInternal(
+                forcedCropStatusBar = false,
+                expectedAppId = expectedAppId,
+            )
+        } catch (e: RpcError) {
+            toast(e.message, forced = true)
+            throw e
+        }
     }
 
     private suspend fun captureInternal(
@@ -317,7 +325,11 @@ object SnapshotCapture {
             throw RpcError("正在保存快照，不可重复操作")
         }
         try {
-            val rootNode = resolveSnapshotRoot(service, expectedAppId)
+            val rootNode = try {
+                withTimeout(10.seconds) { resolveSnapshotRoot(service, expectedAppId) }
+            } catch (_: TimeoutCancellationException) {
+                throw RpcError("读取目标应用节点超时，未保存快照；请稍后重试")
+            }
                 ?: throw RpcError("当前应用没有无障碍信息，捕获失败")
             val snapshotId = System.currentTimeMillis()
             val appId = rootNode.packageName.toString()

@@ -16,6 +16,8 @@ import kotlinx.coroutines.launch
 import li.gkd.app.app
 import li.gkd.app.appScope
 import li.gkd.app.priv.IScreenshotListener
+import li.gkd.app.priv.IScreenshotFileListener
+import li.gkd.app.priv.ScreenshotMonitorState
 import li.gkd.app.priv.PrivilegeContext
 import li.gkd.app.priv.privilegeContextFlow
 import li.gkd.app.store.AppStore.storeFlow
@@ -141,9 +143,18 @@ private fun initSnapshotKeyMonitor() {
     }
 }
 
-private val screenshotListener = object : IScreenshotListener.Stub() {
+private val screenshotMonitorGeneration = atomic(0)
+
+private fun createScreenshotListener(generation: Int) = object : IScreenshotFileListener.Stub() {
+    override fun onStateChanged(watching: Boolean, message: String) {
+        if (screenshotMonitorGeneration.value != generation) return
+        privilegedScreenshotListenerActive.value = watching
+        ScreenshotMonitorState.update(message)
+    }
+
     override fun onScreenshot() {
         appScope.launchLogged(Dispatchers.IO) {
+            if (screenshotMonitorGeneration.value != generation) return@launchLogged
             val store = storeFlow.value
             if (!store.captureScreenshot || !store.captureScreenshotByPrivilege) return@launchLogged
             if (SnapshotCapture.isCapturing) return@launchLogged
@@ -166,21 +177,23 @@ private fun initCaptureScreenshotFileMonitor() {
                             context?.serverInfo?.uid == 0
                     )
         }.distinctUntilChanged().collect { (context, enabled) ->
+            val generation = screenshotMonitorGeneration.incrementAndGet()
             registeredContext?.let { oldContext ->
                 runCatching { oldContext.clearScreenshotFileListener() }
             }
             registeredContext = null
             privilegedScreenshotListenerActive.value = false
+            ScreenshotMonitorState.update(if (enabled) "正在注册目录监听" else "未启动")
             if (context == null || !enabled) return@collect
             val result = runCatching {
-                check(context.setScreenshotFileListener(screenshotListener))
+                check(context.setScreenshotFileListener(createScreenshotListener(generation)))
             }
             val active = result.isSuccess
-            privilegedScreenshotListenerActive.value = active
             if (active) {
                 registeredContext = context
                 LogUtils.d("Root 截图文件监听已启动")
             } else {
+                ScreenshotMonitorState.update("监听启动失败，请检查存储目录后重新开启")
                 LogUtils.d("Root 截图文件监听启动失败", result.exceptionOrNull())
             }
         }
