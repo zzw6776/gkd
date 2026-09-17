@@ -56,20 +56,25 @@ android {
 
     sourceSets.getByName("androidTest").assets.srcDir(project(":gkd-db").file("schemas"))
 
+    val gkdSigningPropertiesFile = buildProperty("GKD_SIGNING_PROPERTIES").orNull
+        ?.let(::file)
+        ?: rootProject.file("signing.properties").takeIf { it.isFile }
     val signingProperties = Properties().apply {
-        buildProperty("GKD_SIGNING_PROPERTIES").orNull?.let { path ->
-            file(path).inputStream().use { load(it) }
-        }
+        gkdSigningPropertiesFile?.inputStream()?.use { load(it) }
     }
     fun signingValue(environmentName: String, vararg propertyNames: String): String? =
         buildProperty(environmentName).orNull ?: propertyNames.firstNotNullOfOrNull { name ->
             signingProperties.getProperty(name)?.trim()?.takeIf { it.isNotEmpty() }
         }
 
-    val gkdStoreFile = buildProperty("GKD_STORE_FILE").orNull
+    val gkdStoreFile = buildProperty("GKD_STORE_FILE").orNull?.let(::file)
+        ?: signingProperties.getProperty("keystore.file")
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { gkdSigningPropertiesFile?.parentFile?.resolve(it) }
     val gkdSigningConfig = if (gkdStoreFile != null) {
         signingConfigs.create("gkd") {
-            storeFile = file(gkdStoreFile)
+            storeFile = gkdStoreFile
             storePassword = requireNotNull(signingValue("GKD_STORE_PASSWORD", "keystore.password", "storePassword", "store.password")) { "Missing GKD store password" }
             keyAlias = requireNotNull(signingValue("GKD_KEY_ALIAS", "key.alias", "keyAlias")) { "Missing GKD key alias" }
             keyPassword = requireNotNull(signingValue("GKD_KEY_PASSWORD", "key.password", "keyPassword")) { "Missing GKD key password" }

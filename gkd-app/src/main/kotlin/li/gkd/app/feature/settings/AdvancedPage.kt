@@ -47,6 +47,7 @@ import li.gkd.app.service.ActivityService
 import li.gkd.app.service.ButtonService
 import li.gkd.app.service.EventService
 import li.gkd.app.service.HttpService
+import li.gkd.app.service.StatusService
 import li.gkd.app.store.AppStore.storeFlow
 import li.gkd.app.ui.component.AppAlertDialog
 import li.gkd.app.ui.component.PerfCustomIconButton
@@ -87,6 +88,7 @@ private fun AdvancedContent() {
     val buttonServiceRunning by ButtonService.isRunning.collectAsStateWithLifecycle()
     val activityServiceRunning by ActivityService.isRunning.collectAsStateWithLifecycle()
     val eventServiceRunning by EventService.isRunning.collectAsStateWithLifecycle()
+    val statusServiceRunning by StatusService.isRunning.collectAsStateWithLifecycle()
 
     if (showHttpSettingsDialog) {
         SettingsDialog(
@@ -146,8 +148,46 @@ private fun AdvancedContent() {
                 .padding(contentPadding),
         ) {
             Text(
-                text = "HTTP",
+                text = "后台",
                 modifier = Modifier.titleItemPadding(showTop = false),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            TextSwitch(
+                title = "增强保活",
+                subtitle = if (store.enableStatusServiceKeepAlive && !statusServiceRunning) {
+                    "尚未生效：需开启常驻通知"
+                } else {
+                    "需开启常驻通知；无障碍关闭时使用透明悬浮窗，可能触发系统上层显示提示"
+                },
+                checked = store.enableStatusServiceKeepAlive,
+                onCheckedChange = scope.launchUiAction { enabled ->
+                    if (!enabled || mainVm.permissionRequests.ensurePermissions(
+                            PermissionStates.drawOverlays,
+                        )
+                    ) {
+                        vm.setStatusServiceKeepAlive(enabled)
+                    }
+                },
+            )
+            if (store.enableStatusServiceKeepAlive && !statusServiceRunning) {
+                SettingItem(
+                    title = "开启常驻通知",
+                    subtitle = "显示运行状态，并使增强保活在无障碍关闭时生效",
+                    onClick = scope.launchUiAction {
+                        if (mainVm.permissionRequests.ensurePermissions(
+                                PermissionStates.foregroundServiceSpecialUse,
+                                PermissionStates.notification,
+                            )
+                        ) {
+                            ServiceController.setStatusEnabled(true)
+                        }
+                    },
+                )
+            }
+            Text(
+                text = "HTTP",
+                modifier = Modifier.titleItemPadding(),
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
             )

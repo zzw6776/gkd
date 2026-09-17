@@ -24,4 +24,8 @@ class AdvancedVm : BaseViewModel() {
     fun setAutoClearMemorySubs(enabled: Boolean) {
         AppStore.updateSettings { it.copy(autoClearMemorySubs = enabled) }
     }
+
+    fun setStatusServiceKeepAlive(enabled: Boolean) {
+        AppStore.updateSettings { it.copy(enableStatusServiceKeepAlive = enabled) }
+    }
 }

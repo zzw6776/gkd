@@ -14,6 +14,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -37,10 +39,15 @@ class SettingsRepositoryTest {
             )
 
             repository.updateSettings {
-                it.copy(enableMatch = false, httpServerPort = 9123)
+                it.copy(
+                    enableMatch = false,
+                    enableStatusServiceKeepAlive = true,
+                    httpServerPort = 9123,
+                )
             }
 
             assertFalse(repository.settings.value.enableMatch)
+            assertTrue(repository.settings.value.enableStatusServiceKeepAlive)
             assertEquals(9123, repository.settings.value.httpServerPort)
             withTimeout(5_000) {
                 while (!directory.resolve("store.json").isFile) delay(10)
@@ -53,10 +60,37 @@ class SettingsRepositoryTest {
                 ::emptySet,
             )
             assertFalse(recreated.settings.value.enableMatch)
+            assertTrue(recreated.settings.value.enableStatusServiceKeepAlive)
             assertEquals(9123, recreated.settings.value.httpServerPort)
         } finally {
             writeScope.cancel()
             readScope.cancel()
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun legacySettingsKeepEnhancedKeepAliveDisabled() = runBlocking {
+        val directory = Files.createTempDirectory("gkd-settings-legacy-keep-alive-test").toFile()
+        val writeScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val currentSettings = json.parseToJsonElement(
+                json.encodeToString(testDefaults().copy(enableStatusService = true))
+            ).jsonObject
+            directory.resolve("store.json").writeText(
+                JsonObject(currentSettings - "enableStatusServiceKeepAlive").toString()
+            )
+            val repository = SettingsRepository(
+                directory,
+                writeScope,
+                ::testDefaults,
+                ::emptySet,
+            )
+
+            assertTrue(repository.settings.value.enableStatusService)
+            assertFalse(repository.settings.value.enableStatusServiceKeepAlive)
+        } finally {
+            writeScope.cancel()
             directory.deleteRecursively()
         }
     }
