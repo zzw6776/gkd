@@ -73,7 +73,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "local-build-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}" \
+          gh release create "local-build-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             gkd-android/build/outputs/apk/gkd/release/*.apk \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
             --title "GKD personal release #${GITHUB_RUN_NUMBER}" \
