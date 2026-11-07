@@ -1,0 +1,104 @@
+name: release
+
+on:
+  push:
+    tags:
+      - v*
+
+jobs:
+  build-android:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-encryption-key: ${{ secrets.GRADLE_CACHE_ENCRYPTION_KEY }}
+
+      - name: restore encrypted signing bundle
+        env:
+          SIGNING_PROPERTIES_ZIP_PASSWORD: ${{ secrets.SIGNING_PROPERTIES_ZIP_PASSWORD }}
+        run: |
+          python3 -m venv "$RUNNER_TEMP/signing-python"
+          "$RUNNER_TEMP/signing-python/bin/pip" install pyzipper==0.3.6 pycryptodomex==3.23.0
+          "$RUNNER_TEMP/signing-python/bin/python" .github/scripts/restore-signing.py \
+            .github/signing/release-signing.zip "$RUNNER_TEMP/gkd-signing"
+
+      - run: ./gradlew :gkd-android:assembleGkdRelease
+        env:
+          GKD_GITHUB_COOKIE: ${{ secrets.GKD_GITHUB_COOKIE }}
+          GKD_SERVER_TOKEN: ${{ secrets.GKD_SERVER_TOKEN }}
+          GKD_SIGNING_PROPERTIES: ${{ runner.temp }}/gkd-signing/signing.properties
+          GKD_STORE_FILE: ${{ runner.temp }}/gkd-signing/release.keystore
+
+      - name: remove decrypted signing files
+        if: always()
+        run: rm -rf -- "$RUNNER_TEMP/gkd-signing" "$RUNNER_TEMP/signing-python"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gkd-apk
+          path: gkd-android/build/outputs/apk/gkd/release
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gkd-${{ github.ref_name }}.outputs
+          path: gkd-android/build/outputs
+
+      - run: |
+          cp outputs/apk/gkd/release/*.apk "${GITHUB_WORKSPACE}/gkd-${GITHUB_REF_NAME}.apk"
+          zip -r "${GITHUB_WORKSPACE}/gkd-${GITHUB_REF_NAME}.outputs.zip" outputs
+        working-directory: gkd-android/build
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          body_path: ./CHANGELOG.md
+          prerelease: ${{ contains(github.ref_name, 'beta') }}
+          fail_on_unmatched_files: true
+          files: |
+            gkd-*.apk
+            gkd-v*.outputs.zip
+
+  build-windows:
+    needs: build-android
+    permissions:
+      contents: write
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-encryption-key: ${{ secrets.GRADLE_CACHE_ENCRYPTION_KEY }}
+
+      - name: build Windows portable package
+        run: ./gradlew.bat :gkd-app:packageWindowsPortable
+        env:
+          GKD_RENAME_PACKAGE_FLAG: "1"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          archive: false
+          include-hidden-files: true
+          if-no-files-found: error
+          path: .local/desktop-packages/gkd-v*.win-*.zip
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          fail_on_unmatched_files: true
+          files: .local/desktop-packages/gkd-v*.win-*.zip

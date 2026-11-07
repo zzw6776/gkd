@@ -1,0 +1,116 @@
+name: build
+
+on:
+  workflow_dispatch:
+
+  push:
+    branches:
+      - '**'
+    paths-ignore:
+      - 'LICENSE'
+      - '*.md'
+      - '.github/**'
+
+jobs:
+  build-android:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-encryption-key: ${{ secrets.GRADLE_CACHE_ENCRYPTION_KEY }}
+
+      - name: restore encrypted signing bundle
+        env:
+          SIGNING_PROPERTIES_ZIP_PASSWORD: ${{ secrets.SIGNING_PROPERTIES_ZIP_PASSWORD }}
+        run: |
+          python3 -m venv "$RUNNER_TEMP/signing-python"
+          "$RUNNER_TEMP/signing-python/bin/pip" install pyzipper==0.3.6 pycryptodomex==3.23.0
+          "$RUNNER_TEMP/signing-python/bin/python" .github/scripts/restore-signing.py \
+            .github/signing/release-signing.zip "$RUNNER_TEMP/gkd-signing"
+
+      - run: ./gradlew :gkd-android:assembleGkdRelease
+        env:
+          GKD_GITHUB_COOKIE: ${{ secrets.GKD_GITHUB_COOKIE }}
+          GKD_SERVER_TOKEN: ${{ secrets.GKD_SERVER_TOKEN }}
+          GKD_SIGNING_PROPERTIES: ${{ runner.temp }}/gkd-signing/signing.properties
+          GKD_STORE_FILE: ${{ runner.temp }}/gkd-signing/release.keystore
+          GKD_RENAME_PACKAGE_FLAG: "1"
+
+      - name: remove decrypted signing files
+        if: always()
+        run: rm -rf -- "$RUNNER_TEMP/gkd-signing" "$RUNNER_TEMP/signing-python"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          archive: false
+          path: gkd-android/build/outputs/apk/gkd/release/*.apk
+
+      - name: derive outputs artifact name from APK
+        id: outputs-artifact
+        shell: bash
+        run: |
+          apk_files=(gkd-android/build/outputs/apk/gkd/release/gkd-v*.apk)
+          [[ ${#apk_files[@]} -eq 1 && -f "${apk_files[0]}" ]]
+          apk_name=$(basename "${apk_files[0]}" .apk)
+          echo "name=${apk_name}.outputs" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.outputs-artifact.outputs.name }}
+          path: gkd-android/build/outputs
+
+      - name: publish personal signed APK
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "local-build-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}" \
+            gkd-android/build/outputs/apk/gkd/release/*.apk \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "GKD personal release #${GITHUB_RUN_NUMBER}" \
+            --notes "Personal signed build from ${GITHUB_SHA}; not an official GKD release." --latest
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-encryption-key: ${{ secrets.GRADLE_CACHE_ENCRYPTION_KEY }}
+
+      - name: run matching regression and build Windows portable package
+        run: ./gradlew.bat :gkd-app:matchingRegression :gkd-app:packageWindowsPortable
+        env:
+          GKD_RENAME_PACKAGE_FLAG: "1"
+
+      - name: upload matching regression report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: matching-regression
+          path: |
+            gkd-app/build/reports/tests/matchingRegression
+            gkd-app/build/test-results/matchingRegression
+          if-no-files-found: warn
+
+      - uses: actions/upload-artifact@v7
+        with:
+          archive: false
+          include-hidden-files: true
+          if-no-files-found: error
+          path: .local/desktop-packages/gkd-v*.win-*.zip
