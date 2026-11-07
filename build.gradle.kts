@@ -29,7 +29,10 @@ plugins {
 
 extra["gkdVersionName"] = "1.13.0" + project.gitInfo.versionNameSuffix.orEmpty()
 
-extra["gkdVersionCode"] = 100
+extra["gkdVersionCode"] =
+    providers.environmentVariable("GKD_VERSION_CODE").orNull?.let { value ->
+        value.toInt().also { require(it in 1..2_100_000_000) }
+    } ?: 100
 
 object Cfg {
     val compileSdk

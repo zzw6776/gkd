@@ -36,15 +36,22 @@ class MatchNodeReadUnavailable(val reason: MatchNodeReadFailure, cause: Throwabl
 }
 
 /** Only platform reads outlive cancellation, never selector evaluation or cache updates. */
-class MatchNodeReader(private val diagnostics: MatchDiagnostics? = null) : AutoCloseable {
+class MatchNodeReader(
+    private val diagnostics: MatchDiagnostics? = null,
+    capacity: Int = NODE_READ_CAPACITY,
+) : AutoCloseable {
+    init {
+        require(capacity > 0)
+    }
+
     // Keep identities even when workers were created before diagnostic recording began.
     private val threads = CopyOnWriteArrayList<Thread>()
     // Android retains an AccessibilityInteractionClient per thread ID. Keep these
     // threads for the reader's lifetime rather than leaving clients behind on idle expiry.
     private val executor =
         ThreadPoolExecutor(
-            NODE_READ_CAPACITY,
-            NODE_READ_CAPACITY,
+            capacity,
+            capacity,
             0,
             TimeUnit.SECONDS,
             SynchronousQueue(),

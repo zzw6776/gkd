@@ -272,7 +272,7 @@ object SnapshotCaptureHost {
         val outcome =
             SnapshotCaptureRepository.capture(settings.autoSaveSnapshotToDownloads) {
                 val rootNode =
-                    service.matchHost.readActiveWindow { error ->
+                    service.matchHost.readActiveWindowBounded { error ->
                         val result =
                             if (error == null) "null"
                             else "${error.javaClass.name}: ${error.message}"

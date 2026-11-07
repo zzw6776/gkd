@@ -12,9 +12,10 @@ object AppLinks {
     const val GithubUploadPolicies = "$Github/upload/policies/assets"
     const val PrivilegeRepository = "$Github/priv-kit/priv-kit"
     const val WebView2Download = "https://developer.microsoft.com/microsoft-edge/webview2/"
-    const val StableUpdate = "https://registry.npmmirror.com/@gkd-kit/app/latest/files/index.json"
-    const val BetaUpdate =
-        "https://registry.npmmirror.com/@gkd-kit/app-beta/latest/files/index.json"
+    private const val ForkUpdate =
+        "https://github.com/zzw6776/gkd/releases/latest/download/index.json"
+    const val StableUpdate = ForkUpdate
+    const val BetaUpdate = ForkUpdate
     const val DocConfig = "https://registry.npmmirror.com/@gkd-kit/docs/latest/files/_config.json"
     const val ErudaScript = "https://registry.npmmirror.com/eruda/latest/files"
     const val ServerScript =

@@ -16,8 +16,10 @@ import li.gkd.app.appScope
 import li.gkd.app.logging.LogUtils
 import li.gkd.app.priv.PrivilegeContext
 import li.gkd.app.priv.privilegeContextFlow
+import li.gkd.app.resources.*
 import li.gkd.app.settings.SettingsRepository.settings
 import li.gkd.app.util.ScreenUtils
+import li.gkd.app.util.ToastUtils
 import li.gkd.app.util.launchLogged
 import li.gkd.app.util.mapState
 import li.gkd.selector.MatchOptions
@@ -165,7 +167,13 @@ fun initSnapshotKeyTrigger() {
                             registeredContext = context
                             LogUtils.d("Root 组合键监听已启动")
                         }
-                        .onFailure { LogUtils.e("Root 组合键监听启动失败", it) }
+                        .onFailure {
+                            LogUtils.e("Root 组合键监听启动失败", it)
+                            ToastUtils.show(
+                                Res.string.snapshot_power_volume_up_start_failed.getSync(),
+                                forced = true,
+                            )
+                        }
                 }
             }
     }

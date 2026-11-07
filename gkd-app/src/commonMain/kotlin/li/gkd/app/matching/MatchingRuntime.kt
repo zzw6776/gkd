@@ -17,6 +17,12 @@ object MatchingRuntime {
                 .invokeOnCompletion { reader.close() }
         }
     }
+    val snapshotNodeReader by lazy {
+        MatchNodeReader(coordinator.diagnostics, capacity = 1).also { reader ->
+            checkNotNull(applicationScope().coroutineContext[kotlinx.coroutines.Job])
+                .invokeOnCompletion { reader.close() }
+        }
+    }
     val inputs by lazy {
         MatchInputStream(
             ForegroundIdentity(TopActivity().appId),

@@ -797,6 +797,7 @@
     <string name="snapshot_power_volume_up_trigger">音量上＋电源快照</string>
     <string name="snapshot_power_volume_up_trigger_description">Root：同时短按保存快照；需保持特权服务运行，系统音量面板可能出现</string>
     <string name="snapshot_power_volume_up_root_required">请先连接 Root 特权服务</string>
+    <string name="snapshot_power_volume_up_start_failed">组合键监听启动失败，请重新连接 Root 特权服务</string>
     <string name="sort_filter">排序筛选</string>
     <string name="sort_title">排序</string>
     <string name="source_code">开源代码</string>

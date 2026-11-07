@@ -172,7 +172,11 @@ fun SnapshotSettingsPage(
                 checked = store.captureVolumeChange,
                 onCheckedChange = { enabled ->
                     SettingsRepository.updateSettings {
-                        it.copy(captureVolumeChange = enabled)
+                        if (enabled) {
+                            it.copy(captureVolumeChange = true, capturePowerVolumeUp = false)
+                        } else {
+                            it.copy(captureVolumeChange = false)
+                        }
                     }
                 },
             )
@@ -197,7 +201,13 @@ fun SnapshotSettingsPage(
                     )
                 },
                 onCheckedChange = { enabled ->
-                    SettingsRepository.updateSettings { it.copy(captureScreenshot = enabled) }
+                    SettingsRepository.updateSettings {
+                        if (enabled) {
+                            it.copy(captureScreenshot = true, capturePowerVolumeUp = false)
+                        } else {
+                            it.copy(captureScreenshot = false)
+                        }
+                    }
                     val current = SettingsRepository.settings.value
                     if (
                         enabled &&

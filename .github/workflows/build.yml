@@ -14,7 +14,7 @@ on:
 jobs:
   build-android:
     permissions:
-      contents: write
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -37,6 +37,13 @@ jobs:
           "$RUNNER_TEMP/signing-python/bin/python" .github/scripts/restore-signing.py \
             .github/signing/release-signing.zip "$RUNNER_TEMP/gkd-signing"
 
+      - name: configure personal version code
+        shell: bash
+        run: |
+          version_code=$((100000 + GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT))
+          ((version_code <= 2100000000))
+          echo "GKD_VERSION_CODE=$version_code" >> "$GITHUB_ENV"
+
       - run: ./gradlew :gkd-android:assembleGkdRelease
         env:
           GKD_GITHUB_COOKIE: ${{ secrets.GKD_GITHUB_COOKIE }}
@@ -49,10 +56,26 @@ jobs:
         if: always()
         run: rm -rf -- "$RUNNER_TEMP/gkd-signing" "$RUNNER_TEMP/signing-python"
 
+      - name: create personal update manifest
+        shell: bash
+        run: |
+          apk_files=(gkd-android/build/outputs/apk/gkd/release/gkd-v*.apk)
+          [[ ${#apk_files[@]} -eq 1 && -f "${apk_files[0]}" ]]
+          python3 .github/scripts/create-update-manifest.py \
+            gkd-android/build/outputs/apk/gkd/release/output-metadata.json \
+            "${apk_files[0]}" \
+            "$GITHUB_REPOSITORY" \
+            "local-build-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            "$GITHUB_SHA" \
+            gkd-android/build/outputs/apk/gkd/release/index.json
+
       - uses: actions/upload-artifact@v7
         with:
+          name: gkd-apk-${{ github.sha }}
           archive: false
-          path: gkd-android/build/outputs/apk/gkd/release/*.apk
+          path: |
+            gkd-android/build/outputs/apk/gkd/release/*.apk
+            gkd-android/build/outputs/apk/gkd/release/index.json
 
       - name: derive outputs artifact name from APK
         id: outputs-artifact
@@ -68,13 +91,24 @@ jobs:
           name: ${{ steps.outputs-artifact.outputs.name }}
           path: gkd-android/build/outputs
 
+  publish-personal:
+    if: github.ref == 'refs/heads/main'
+    needs: build-android
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: gkd-apk-${{ github.sha }}
+          path: release
+
       - name: publish personal signed APK
-        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "local-build-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
-            gkd-android/build/outputs/apk/gkd/release/*.apk \
+            release/*.apk release/index.json \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
             --title "GKD personal release #${GITHUB_RUN_NUMBER}" \
             --notes "Personal signed build from ${GITHUB_SHA}; not an official GKD release." --latest

@@ -36,8 +36,8 @@ private data class TempNodeData(
 
 private fun getChildren(node: AccessibilityNodeInfo) = sequence {
     repeat(node.childCount.coerceAtMost(MAX_CHILD_SIZE)) { i ->
-        val child = node.getChild(i) ?: return@sequence
-        yield(child)
+        val child = node.getChild(i) ?: return@repeat
+        yield(i to child)
     }
 }
 
@@ -59,7 +59,7 @@ fun captureNodeInfoList(root: AccessibilityNodeInfo?): List<NodeInfo> {
             node.id = times - 1
             val children =
                 getChildren(node.node)
-                    .mapIndexed { i, child ->
+                    .map { (i, child) ->
                         TempNodeData(
                             child,
                             node,

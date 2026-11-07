@@ -181,6 +181,39 @@ class AndroidMatchHost(private val service: AndroidAutomationSession) {
             service.windowNodeInfo?.setGeneratedTime()
         }
 
+    suspend fun readActiveWindowBounded(
+        onUnavailable: ((RuntimeException?) -> Unit)? = null,
+    ): AccessibilityNodeInfo? =
+        try {
+            if (!coordinator.diagnostics.enabled) {
+                readSnapshotNode { readActiveWindow(onUnavailable) }
+            } else {
+                // Keep nested diagnostic publication outside the timed Binder worker.
+                readA11yWindow(coordinator.diagnostics, "ActiveWindow", onUnavailable) {
+                    readSnapshotNode {
+                        service.windowNodeInfo?.setGeneratedTime()
+                    }
+                }
+            }
+        } catch (error: MatchNodeReadUnavailable) {
+            onUnavailable?.invoke(error)
+            null
+        }
+
+    private suspend fun readSnapshotNode(
+        read: () -> AccessibilityNodeInfo?,
+    ): AccessibilityNodeInfo? {
+        val reader = MatchingRuntime.snapshotNodeReader
+        return reader.query {
+            reader.read(
+                timing.rootWaitMillis,
+                name = "SnapshotRoot",
+                page = "snapshot",
+                block = read,
+            )
+        }
+    }
+
     private val scope
         get() = service.scope
 

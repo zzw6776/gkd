@@ -37,7 +37,7 @@ private val privilegeContextMutex = Mutex()
 private val userServiceSpec =
     PrivilegeUserServiceSpec(
         serviceClassName = UserService::class.java.name,
-        version = 8, // Bump whenever the UserService implementation or its AIDL contract changes.
+        version = 9, // Bump whenever the UserService implementation or its AIDL contract changes.
         embedded = true,
     )
 

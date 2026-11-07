@@ -49,6 +49,12 @@ object SettingsRepositoryChecks {
                 ),
             ) {}
             assertEquals(original, repo.exportBackupEntries())
+            repo.withBackupRestore(
+                mapOf("store.json" to """{"enableStatusServiceKeepAlive":false}"""),
+            ) {}
+            assertFalse(repo.settings.value.enableStatusOverlay)
+            assertFalse(diskSettings().enableStatusOverlay)
+            repo.withBackupRestore(original) {}
             checkCorruptSettingsPreservation(directory.resolve("decode-checks").apply { mkdirs() })
             repo.updateSettings {
                 it.copy(

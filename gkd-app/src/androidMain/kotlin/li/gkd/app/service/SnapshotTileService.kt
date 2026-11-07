@@ -30,7 +30,7 @@ private fun execSnapshot() {
         return
     }
     appScope.launchUi(Dispatchers.IO) {
-        val oldAppId = AndroidAutomationSessions.getRoot(service)?.packageName?.toString()
+        val oldAppId = service.matchHost.readActiveWindowBounded()?.packageName?.toString()
 
         if (oldAppId == null) {
             performActionBack()
@@ -45,7 +45,7 @@ private fun execSnapshot() {
 
         var ok = false
         while (isActive) {
-            val latestAppId = AndroidAutomationSessions.getRoot(service)?.packageName?.toString()
+            val latestAppId = service.matchHost.readActiveWindowBounded()?.packageName?.toString()
             if (latestAppId == null) {
                 // https://github.com/gkd-kit/gkd/issues/713
                 delay(250)

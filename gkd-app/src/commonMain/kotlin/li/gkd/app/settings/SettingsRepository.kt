@@ -259,8 +259,19 @@ object SettingsRepository {
         encodeDefaults = true
     }
 
-    private fun decodeSettings(text: String): SettingsStore =
-        json.decodeFromJsonElement(
+    private fun decodeSettings(text: String): SettingsStore {
+        val persisted = json.parseToJsonElement(text).jsonObject
+        val migrated =
+            if (
+                "enableStatusOverlay" !in persisted &&
+                    "enableStatusServiceKeepAlive" in persisted
+            ) {
+                persisted +
+                    ("enableStatusOverlay" to persisted.getValue("enableStatusServiceKeepAlive"))
+            } else {
+                persisted
+            }
+        return json.decodeFromJsonElement(
             SettingsStore.serializer(),
             JsonObject(
                 json
@@ -268,9 +279,10 @@ object SettingsRepository {
                     .jsonObject
                     .filterKeys { key ->
                         key in setOf("actionToast", "customNotifTitle", "updateChannel")
-                    } + json.parseToJsonElement(text).jsonObject,
+                    } + migrated,
             ),
         )
+    }
 
     private val settingsValue by lazy {
         PersistedValue(
