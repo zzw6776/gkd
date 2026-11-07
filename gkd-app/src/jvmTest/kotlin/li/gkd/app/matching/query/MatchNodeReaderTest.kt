@@ -231,7 +231,9 @@ class MatchNodeReaderTest {
             assertFalse(executor.terminated)
             assertEquals(4, executor.threads.map { it.id }.distinct().size)
             assertTrue(executor.threads.all { it.alive && !it.interrupted })
-            assertTrue(executor.threads.all { it.state == "WAITING" })
+            // Thread state can be sampled as RUNNABLE while the Windows JVM is collecting the
+            // stack even though the same snapshot already shows it blocked in await().
+            assertTrue(executor.threads.all { it.state == "WAITING" || it.state == "RUNNABLE" })
             assertTrue(
                 executor.threads.all { thread ->
                     thread.stackTrace.any { it.contains("CountDownLatch.await") }
