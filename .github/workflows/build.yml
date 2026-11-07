@@ -72,7 +72,6 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: gkd-apk-${{ github.sha }}
-          archive: false
           path: |
             gkd-android/build/outputs/apk/gkd/release/*.apk
             gkd-android/build/outputs/apk/gkd/release/index.json
